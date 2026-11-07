@@ -94,7 +94,7 @@ button.primary { background: var(--for-sale); color: #fff; border-color: var(--f
   <span class="crit" id="crit"></span>
   <span class="spacer"></span>
   <span id="msg"></span>
-  <button id="booliBtn" class="primary">Öppna Booli</button>
+  <button id="booliBtn" class="primary">Uppdatera från Booli</button>
   <button id="moreBtn">Mer…</button>
 </header>
 <nav>
@@ -106,6 +106,7 @@ button.primary { background: var(--for-sale); color: #fff; border-color: var(--f
   <div class="filters" id="filters">
     <label><input type="checkbox" value="for_sale" checked> <span class="legend"><span class="dot st-for_sale"></span>Till salu</span></label>
     <label><input type="checkbox" value="sold" checked> <span class="legend"><span class="dot st-sold"></span>Sålda</span></label>
+    <label><input type="checkbox" value="removed" checked> <span class="legend"><span class="dot st-removed"></span>Borttagna</span></label>
   </div>
 
   <section id="view-list">
@@ -120,7 +121,7 @@ button.primary { background: var(--for-sale); color: #fff; border-color: var(--f
       <tbody id="tbody"></tbody>
     </table></div>
     <div id="emptyList" class="empty hidden">
-      Inga objekt ännu.<br><br>Tryck <b>Öppna Booli</b>, bläddra till sökresultatet och tryck <b>Spara objekten på sidan</b> längst ned.
+      Inga objekt ännu.<br><br>Tryck <b>Uppdatera från Booli</b> → <b>Hämta nya objekt och slutpriser</b>.
     </div>
   </section>
 
@@ -142,11 +143,10 @@ button.primary { background: var(--for-sale); color: #fff; border-color: var(--f
 
 <dialog id="booliDlg">
   <form method="dialog" class="menu">
-    <h3>Öppna Booli</h3>
-    <p class="help">Bläddra som vanligt. Tryck <b>Spara objekten på sidan</b> på varje sida du vill spara – sökresultat (alla sidor), slutprislistor eller enskilda annonser.</p>
-    <button value="sale">Till salu – sökning med kriterierna</button>
-    <button value="sold">Slutpriser – sökning med kriterierna</button>
-    <button value="home">Booli startsida</button>
+    <h3>Booli</h3>
+    <p class="help"><b>Hämta</b> öppnar Booli i appen. Vänta tills sidan har laddat (klara en ev. robotkontroll), tryck sedan på den blå knappen. Appen hämtar då alla lägenheter till salu som uppfyller kriterierna i dina områden, plus de senaste slutpriserna.</p>
+    <button value="fetch" class="primary">Hämta nya objekt och slutpriser</button>
+    <button value="home">Bara titta på Booli</button>
     <button value="cancel">Avbryt</button>
   </form>
 </dialog>
@@ -154,9 +154,10 @@ button.primary { background: var(--for-sale); color: #fff; border-color: var(--f
 <dialog id="moreDlg">
   <form method="dialog" class="menu">
     <h3>Mer</h3>
-    <label class="help">Booli område-id (areaIds) för Stockholms innerstad
-      <input id="areaId" inputmode="numeric" placeholder="t.ex. 115355"></label>
-    <p class="help">Hitta id:t genom att söka på ”Stockholms innerstad” på Booli och läsa <code>areaIds=</code> i adressen. Tomt = du väljer område själv på Booli.</p>
+    <label class="help">Områden (kommaseparerade, som de heter på Booli)
+      <textarea id="areas" rows="3"></textarea></label>
+    <p class="help" id="areaInfo"></p>
+    <button id="resetAreas" type="button">Återställ standardområden</button>
     <button value="export">Exportera säkerhetskopia (JSON)</button>
     <button value="import">Importera säkerhetskopia / data från datorappen</button>
     <button value="cancel">Stäng</button>

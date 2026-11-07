@@ -109,15 +109,16 @@
     const bid = raw(first(d, "booliId", "id"));
     if (bid == null) return null;
     const [lat, lng] = location(d);
-    if (lat == null || lng == null) return null;
     const soldPrice = num(first(d, "soldPrice", "finalPrice"));
     const listPrice = num(first(d, "listPrice", "price", "askingPrice"));
     if (soldPrice == null && listPrice == null) return null;
     let url = first(d, "url", "listingUrl");
     if (url && String(url).startsWith("/")) url = "https://www.booli.se" + url;
+    const rid = first(d, "residenceId") || (url && (String(url).match(/\/bostad\/(\d+)/) || [])[1]);
     const type = raw(first(d, "objectType", "propertyType", "type"));
     return {
       booli_id: String(bid),
+      residence_id: rid ? String(rid) : null,
       address: address(d),
       area_name: areaName(d),
       zip: zip(d),
@@ -131,6 +132,7 @@
       sold_price: soldPrice,
       sold_date: isoDate(first(d, "soldDate", "dateSold")),
       published: isoDate(first(d, "published", "publishedDate", "firstPublished")),
+      days_active: num(first(d, "daysActive")),
       url: url ? String(url) : null,
     };
   }
@@ -209,13 +211,14 @@
     return true;
   }
 
-  const FIELDS = ["address", "area_name", "zip", "lat", "lng", "living_area", "rooms", "floor",
-    "rent", "object_type", "published", "url"];
+  const FIELDS = ["residence_id", "address", "area_name", "zip", "lat", "lng", "living_area", "rooms", "floor",
+    "rent", "object_type", "published", "days_active", "url"];
   const today = () => new Date().toISOString().slice(0, 10);
   const normAddr = a => (a || "").toLowerCase().replace(/[^a-zåäö0-9]/g, "");
 
   function findMatch(listings, s) {
-    const byId = listings.find(l => l.booli_id === s.booli_id);
+    const byId = (s.residence_id && listings.find(l => l.residence_id === s.residence_id))
+      || listings.find(l => l.booli_id === s.booli_id);
     if (byId) return byId;
     const a = normAddr(s.address);
     if (!a) return null;
@@ -223,10 +226,45 @@
       !(s.living_area && l.living_area && Math.abs(s.living_area - l.living_area) > 2)) || null;
   }
 
-  function markSold(l, price, date, day = today()) {
+  function markSold(l, price, date, day = today(), daysActive = null) {
     l.status = "sold";
     l.sold_price = price;
     l.sold_date = date || l.sold_date || day;
+    if (daysActive != null) l.days_active = daysActive;
+  }
+
+  function newListing(o, day, status) {
+    const n = { booli_id: o.booli_id, status, first_seen: day, last_seen: day,
+      list_price: o.list_price, first_list_price: o.list_price, sold_price: null, sold_date: null, note: null };
+    for (const f of FIELDS) n[f] = o[f] ?? null;
+    return n;
+  }
+
+  /** Applicerar ett komplett hämtresultat från Boolis GraphQL (se booli-fetch.js). Muterar listings. */
+  function applyFetch(listings, result, day = today()) {
+    const dedupe = arr => [...new Map(arr.map(normalize).filter(Boolean).map(o => [o.booli_id, o])).values()];
+    const forSale = dedupe(result.forSale || []).filter(o => o.sold_price == null);
+    const r = applyItems(listings, forSale, day);
+    let removed = 0;
+    if (result.complete && !(result.errors || []).length) {
+      const seen = new Set(forSale.filter(matchesCriteria).map(o => o.booli_id));
+      for (const l of listings) if (l.status === "for_sale" && !seen.has(l.booli_id)) { l.status = "removed"; removed++; }
+    }
+    let sold = 0, history = 0;
+    for (const o of dedupe(result.sold || [])) {
+      if (o.sold_price == null) continue;
+      const l = findMatch(listings, o);
+      if (l) {
+        if (l.status !== "sold") { markSold(l, o.sold_price, o.sold_date, day, o.days_active); sold++; }
+      } else if (o.list_price != null && matchesCriteria(o)) {
+        // Sålt objekt som aldrig setts till salu i appen – sparas för statistiken
+        const n = newListing(o, null, "sold");
+        n.sold_price = o.sold_price; n.sold_date = o.sold_date;
+        listings.push(n); history++;
+      }
+    }
+    return { added: r.added, updated: r.updated, removed, sold, history,
+      forSale: forSale.length, soldSeen: (result.sold || []).length };
   }
 
   /** Applicerar objekt från en sida på listan. Muterar listings. */
@@ -242,14 +280,12 @@
       if (!matchesCriteria(o)) { skipped++; continue; }
       const l = listings.find(x => x.booli_id === o.booli_id);
       if (!l) {
-        const n = { booli_id: o.booli_id, status: "for_sale", first_seen: day, last_seen: day,
-          list_price: o.list_price, first_list_price: o.list_price, sold_price: null, sold_date: null, note: null };
-        for (const f of FIELDS) n[f] = o[f] ?? null;
-        listings.push(n);
+        listings.push(newListing(o, day, "for_sale"));
         added++;
       } else {
         for (const f of FIELDS) if (o[f] != null) l[f] = o[f];
         if (o.list_price != null) l.list_price = o.list_price;
+        if (l.status === "removed") l.status = "for_sale";
         l.last_seen = day;
         updated++;
       }
@@ -285,7 +321,7 @@
     const prices = sold.map(l => l.sold_price);
     const sqms = sold.map(sqm).filter(v => v);
     const diffs = sold.map(diff).filter(v => v != null);
-    const ds = sold.map(l => days(l.published || l.first_seen, l.sold_date)).filter(d => d != null && d >= 0);
+    const ds = sold.map(l => l.days_active ?? days(l.published || l.first_seen, l.sold_date)).filter(d => d != null && d >= 0);
     out.sold = {
       avg_price: mean(prices), median_price: median(prices),
       min_price: Math.min(...prices), max_price: Math.max(...prices),
@@ -328,5 +364,7 @@
     return `https://www.booli.se/sok/${sold ? "slutpriser" : "till-salu"}?${p}`;
   }
 
-  return { CRITERIA, parsePage, normalize, matchesCriteria, applyItems, markSold, findMatch, stats, searchUrl };
+  const AREAS = ["Gärdet", "Östermalm", "Norrmalm", "Vasastan", "Kungsholmen", "Gamla stan", "Södermalm"];
+
+  return { CRITERIA, AREAS, parsePage, normalize, matchesCriteria, applyItems, applyFetch, markSold, findMatch, stats, searchUrl };
 });

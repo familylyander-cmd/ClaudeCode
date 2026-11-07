@@ -29,7 +29,6 @@ const store = {
 };
 
 const STATUS = { for_sale: "Till salu", sold: "Såld", removed: "Borttagen" };
-const DEFAULT_AREA = "115355";
 const kr = v => v == null ? "–" : Math.round(v).toLocaleString("sv-SE") + " kr";
 const mkr = v => v == null ? "–" : (v / 1e6).toLocaleString("sv-SE", { maximumFractionDigits: 2 }) + " mkr";
 const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + v.toFixed(1).replace(".", ",") + " %";
@@ -38,12 +37,12 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const $ = id => document.getElementById(id);
 
-let listings = [], areaId = DEFAULT_AREA, sortKey = "first_seen", sortDir = -1, map, layer, charts = {};
+let listings = [], areas = Core.AREAS.slice(), areaIds = {}, sortKey = "first_seen", sortDir = -1, map, layer, charts = {};
 
 async function load() {
   try { listings = JSON.parse((await store.get("listings")) || "[]"); } catch (e) { listings = []; }
-  const a = await store.get("areaId");
-  areaId = a == null ? DEFAULT_AREA : a;
+  try { const a = JSON.parse((await store.get("areas")) || "null"); if (Array.isArray(a) && a.length) areas = a; } catch (e) { /* standard */ }
+  try { areaIds = JSON.parse((await store.get("areaIds")) || "{}") || {}; } catch (e) { areaIds = {}; }
   const c = Core.CRITERIA;
   $("crit").textContent = `Lägenhet · ≥ ${c.minLivingArea} kvm · ≥ ${c.minRooms} rum · utgångspris ≤ ${mkr(c.maxListPrice)}`;
   render();
@@ -66,13 +65,46 @@ async function handlePage(html, url) {
   return r;
 }
 
+// ---------- Hämtning via Booli i inbyggd webbläsare ----------
+let fetchScript = null;
+async function fetchConfig() {
+  if (!fetchScript) fetchScript = await (await fetch("booli-fetch.js")).text();
+  const cached = {};
+  for (const a of areas) if (areaIds[a]) cached[a] = areaIds[a];
+  return JSON.stringify({ areas, areaIds: cached, criteria: Core.CRITERIA, soldPages: 3, maxPages: 20 });
+}
+
+async function handleResult(json) {
+  let result;
+  try { result = JSON.parse(json); } catch (e) { setMsg("Kunde inte läsa svaret från Booli", true); return; }
+  for (const a of result.areas || []) areaIds[a.name] = a;
+  await store.set("areaIds", JSON.stringify(areaIds));
+  const r = Core.applyFetch(listings, result);
+  await save();
+  render();
+  const text = `${r.forSale} till salu hos Booli: ${r.added} nya, ${r.removed} borttagna. ` +
+    `${r.sold} sålda med slutpris` + (r.history ? `, ${r.history} tidigare sålda tillagda` : "") +
+    ((result.errors || []).length ? `. Varning: ${result.errors.join("; ")}` : "");
+  setMsg(text, (result.errors || []).length > 0);
+  if (Browser) Browser.showMessage({ text });
+}
+if (Browser) Browser.addListener("result", e => handleResult(e.json || ""));
+
+async function updateFromBooli() {
+  if (!Browser) { setMsg("Hämtning fungerar bara i Android-appen", true); return; }
+  try {
+    const config = await fetchConfig();
+    await Browser.open({ url: "https://www.booli.se/", script: fetchScript, config,
+      label: `Hämta objekt (${areas.length} områden)` });
+  } catch (e) { setMsg("Kunde inte öppna Booli: " + (e.message || e), true); }
+}
+
 function openBooli(url) {
   if (Browser) Browser.open({ url }).catch(e => setMsg("Kunde inte öppna Booli: " + (e.message || e), true));
   else if (native) setMsg("Webbläsaren för Booli saknas i appen", true);
   else window.open(url, "_blank");
 }
 
-if (Browser) Browser.addListener("page", e => handlePage(e.html || "", e.url));
 
 // ---------- Rendering ----------
 function derived(l) {
@@ -83,7 +115,6 @@ function derived(l) {
 }
 function visible() {
   const on = [...document.querySelectorAll("#filters input:checked")].map(i => i.value);
-  if (on.includes("for_sale")) on.push("removed");
   return listings.map(derived).filter(l => on.includes(l.status));
 }
 function render() {
@@ -125,7 +156,7 @@ function renderMap() {
     const lg = L.control({ position: "bottomleft" });
     lg.onAdd = () => { const d = L.DomUtil.create("div");
       d.style.cssText = "background:#fff;color:#0b0b0b;padding:6px 8px;border-radius:6px;font-size:12px";
-      d.innerHTML = `<div><span class="dot st-for_sale"></span> Till salu</div><div><span class="dot st-sold"></span> Såld</div>`; return d; };
+      d.innerHTML = `<div><span class="dot st-for_sale"></span> Till salu</div><div><span class="dot st-sold"></span> Såld</div><div><span class="dot st-removed"></span> Borttagen</div>`; return d; };
     lg.addTo(map);
   }
   if (layer) layer.remove();
@@ -143,7 +174,7 @@ function renderMap() {
 function renderStats() {
   const s = Core.stats(listings), t = s.sold || {};
   const tiles = [
-    ["Till salu", num(s.counts.for_sale + s.counts.removed)], ["Sålda", num(s.counts.sold)],
+    ["Till salu", num(s.counts.for_sale)], ["Sålda", num(s.counts.sold)], ["Borttagna utan slutpris", num(s.counts.removed)],
     ["Medianslutpris", mkr(t.median_price)], ["Snitt slutpris", mkr(t.avg_price)],
     ["Median kr/kvm", kr(t.median_sqm_price)], ["Snitt diff mot utgångspris", pct(t.avg_diff_pct)],
     ["Andel över utgångspris", t.share_over_list_pct == null ? "–" : Math.round(t.share_over_list_pct) + " %"],
@@ -226,15 +257,23 @@ document.addEventListener("click", e => {
 $("booliBtn").onclick = () => $("booliDlg").showModal();
 $("booliDlg").onclose = () => {
   const v = $("booliDlg").returnValue;
-  if (v === "sale") openBooli(Core.searchUrl(false, areaId));
-  if (v === "sold") openBooli(Core.searchUrl(true, areaId));
+  if (v === "fetch") updateFromBooli();
   if (v === "home") openBooli("https://www.booli.se/");
 };
 
-$("moreBtn").onclick = () => { $("areaId").value = areaId; $("moreDlg").showModal(); };
+function renderAreas() {
+  $("areas").value = areas.join(", ");
+  $("areaInfo").innerHTML = areas.map(a => areaIds[a]
+    ? `${esc(a)} → ${esc(areaIds[a].displayName)} (id ${esc(areaIds[a].id)})`
+    : `${esc(a)} → slås upp vid nästa hämtning`).join("<br>");
+}
+$("moreBtn").onclick = () => { renderAreas(); $("moreDlg").showModal(); };
+$("resetAreas").onclick = e => { e.preventDefault(); areas = Core.AREAS.slice(); areaIds = {}; renderAreas(); };
 $("moreDlg").onclose = async () => {
-  areaId = $("areaId").value.trim();
-  await store.set("areaId", areaId);
+  const next = $("areas").value.split(",").map(x => x.trim()).filter(Boolean);
+  if (next.length) areas = next;
+  await store.set("areas", JSON.stringify(areas));
+  await store.set("areaIds", JSON.stringify(areaIds));
   const v = $("moreDlg").returnValue;
   try {
     if (v === "export") await exportBackup();
@@ -263,5 +302,5 @@ $("soldDlg").onclose = async () => {
 };
 
 // Exponeras för test i vanlig webbläsare
-window.__app = { handlePage, get listings() { return listings; } };
+window.__app = { handlePage, handleResult, fetchConfig, get listings() { return listings; } };
 load();

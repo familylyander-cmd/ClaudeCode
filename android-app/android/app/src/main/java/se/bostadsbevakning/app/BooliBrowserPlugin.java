@@ -8,7 +8,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-/** Öppnar Booli i en inbyggd webbläsare och skickar sidor som användaren sparar till appen. */
+/** Öppnar Booli i en inbyggd webbläsare. Användaren hämtar objekt med en knapp; resultatet skickas till appen. */
 @CapacitorPlugin(name = "BooliBrowser")
 public class BooliBrowserPlugin extends Plugin {
     private static BooliBrowserPlugin instance;
@@ -20,9 +20,12 @@ public class BooliBrowserPlugin extends Plugin {
 
     @PluginMethod
     public void open(PluginCall call) {
-        String url = call.getString("url", "https://www.booli.se/");
         Intent intent = new Intent(getContext(), BooliBrowserActivity.class);
-        intent.putExtra(BooliBrowserActivity.EXTRA_URL, url);
+        intent.putExtra(BooliBrowserActivity.EXTRA_URL, call.getString("url", "https://www.booli.se/"));
+        // Skriptet (booli-fetch.js) och dess inställningar hålls statiskt – kan vara för stort för en Intent.
+        BooliBrowserActivity.pendingScript = call.getString("script");
+        BooliBrowserActivity.pendingConfig = call.getString("config");
+        BooliBrowserActivity.pendingLabel = call.getString("label", "Hämta objekt från Booli");
         getActivity().startActivity(intent);
         call.resolve();
     }
@@ -35,13 +38,11 @@ public class BooliBrowserPlugin extends Plugin {
         call.resolve();
     }
 
-    /** Anropas från BooliBrowserActivity när användaren trycker "Spara objekten på sidan". */
-    static boolean deliverPage(String url, String html) {
+    static boolean deliver(String event, String key, String value) {
         if (instance == null) return false;
         JSObject data = new JSObject();
-        data.put("url", url);
-        data.put("html", html);
-        instance.notifyListeners("page", data, true);
+        data.put(key, value);
+        instance.notifyListeners(event, data, true);
         return true;
     }
 }

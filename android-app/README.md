@@ -12,17 +12,26 @@ lista, karta (blå = till salu, orange = såld) och statistik.
 
 ## Använda
 
-1. Tryck **Öppna Booli** → *Till salu – sökning med kriterierna*. Booli öppnas i appens inbyggda webbläsare.
-   Du surfar som vanligt (och klarar själv eventuella robotkontroller).
-2. Tryck **Spara objekten på sidan** längst ned. Bläddra till nästa sida i sökresultatet och tryck igen.
-3. För slutpriser: *Slutpriser – sökning med kriterierna*, eller tryck på ett objekts adress i listan för att
-   öppna annonsen, och tryck **Spara objekten på sidan**. Sålda objekt matchas på Booli-id, annars adress + boarea.
-4. Slutpris kan också anges för hand (**Ange slutpris**).
+1. Tryck **Uppdatera från Booli** → **Hämta nya objekt och slutpriser**. Booli öppnas i appens inbyggda webbläsare.
+2. Vänta tills sidan har laddat. Visar Booli en robotkontroll klarar du den själv.
+3. Tryck på den blå knappen **Hämta objekt (7 områden)**. Appen gör då samma anrop som Boolis egen
+   sida (`/graphql`) i din session och hämtar, för varje område:
+   - alla lägenheter till salu med ≥ 3 rum, ≥ 70 kvm och utgångspris ≤ 13 mkr
+   - de senaste slutpriserna (3 sidor per område)
+4. Appen går tillbaka till listan. Objekt som inte längre finns till salu markeras *borttagna* tills
+   slutpriset dyker upp; sålda objekt matchas på Boolis bostads-id (`/bostad/<id>`), annars adress + boarea.
+   Sålda objekt inom kriterierna som aldrig setts till salu läggs också till, för statistiken.
 
-**Mer…** innehåller område-id för sökningen (verifiera `areaIds` för Stockholms innerstad på booli.se),
-export av säkerhetskopia och import (även JSON från datorappens `/api/listings`).
+**Områden** (ändras under **Mer…**): Gärdet, Östermalm, Norrmalm, Vasastan, Kungsholmen, Gamla stan, Södermalm.
+Namnen slås upp till Boolis område-id vid första hämtningen; under **Mer…** syns vilket Booli-område varje namn
+blev, så att du kan kontrollera det.
 
-Inget hämtas automatiskt i bakgrunden – appen läser bara sidor du själv öppnar.
+Slutpris kan också anges för hand (**Ange slutpris**). **Mer…** har även export/import av säkerhetskopia.
+
+Inget hämtas automatiskt i bakgrunden – bara när du trycker på knappen.
+
+Hur Boolis GraphQL ser ut är hämtat från dokumentationen i
+[chrischall/booli-mcp](https://github.com/chrischall/booli-mcp/blob/main/docs/BOOLI-API.md).
 
 ## Utveckling
 
@@ -33,9 +42,10 @@ npx cap sync android
 cd android && ./gradlew assembleDebug   # kräver JDK 21 och Android SDK 36
 ```
 
-- `www/core.js` – tolkning av Booli-sidor, kriterier, statistik (testas i Node)
+- `www/booli-fetch.js` – körs i Booli-sidan när du trycker på hämta-knappen (GraphQL-anrop)
+- `www/core.js` – tolkning av Booli-data, kriterier, matchning, statistik (testas i Node)
 - `www/app.js`, `www/index.html` – gränssnitt; data sparas med Capacitor Preferences
-- `android/app/src/main/java/.../BooliBrowserActivity.java` – inbyggd webbläsare med spara-knapp
+- `android/app/src/main/java/.../BooliBrowserActivity.java` – inbyggd webbläsare med hämta-knapp
 - `.github/workflows/android.yml` – bygger APK och publicerar den som release vid varje push
 
 APK:n signeras med `android/app/bostadsbevakning.keystore` (lösenord `android`) så att uppdateringar kan
