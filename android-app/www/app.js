@@ -1,13 +1,21 @@
 /* global Core, L, Chart */
 "use strict";
 
+// Visa oväntade fel i appen istället för att tyst sluta fungera
+window.addEventListener("error", e => setMsg("Fel: " + e.message, true));
+window.addEventListener("unhandledrejection", e => setMsg("Fel: " + (e.reason?.message || e.reason), true));
+
 // ---------- Plattform: Capacitor på Android, annars vanlig webbläsare (för test) ----------
 const Cap = window.Capacitor;
 const native = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
-const Prefs = native ? Cap.registerPlugin("Preferences") : null;
-const Browser = native ? Cap.registerPlugin("BooliBrowser") : null;
-const FS = native ? Cap.registerPlugin("Filesystem") : null;
-const ShareP = native ? Cap.registerPlugin("Share") : null;
+const plugin = name => {
+  if (!native) return null;
+  try { return Cap.registerPlugin(name); } catch (e) { console.error(e); return null; }
+};
+const Prefs = plugin("Preferences");
+const Browser = plugin("BooliBrowser");
+const FS = plugin("Filesystem");
+const ShareP = plugin("Share");
 
 const store = {
   async get(key) {
@@ -41,7 +49,7 @@ async function load() {
   render();
 }
 const save = () => store.set("listings", JSON.stringify(listings));
-function setMsg(t, err) { const m = $("msg"); m.textContent = t || ""; m.className = err ? "err" : ""; }
+function setMsg(t, err) { const m = document.getElementById("msg"); if (!m) return; m.textContent = t || ""; m.className = err ? "err" : ""; }
 
 // ---------- Booli i inbyggd webbläsare ----------
 async function handlePage(html, url) {
@@ -59,7 +67,8 @@ async function handlePage(html, url) {
 }
 
 function openBooli(url) {
-  if (Browser) Browser.open({ url });
+  if (Browser) Browser.open({ url }).catch(e => setMsg("Kunde inte öppna Booli: " + (e.message || e), true));
+  else if (native) setMsg("Webbläsaren för Booli saknas i appen", true);
   else window.open(url, "_blank");
 }
 

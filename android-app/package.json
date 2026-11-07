@@ -5,8 +5,9 @@
   "description": "Android-app för att spara Booli-objekt i Stockholms innerstad",
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
-    "sync": "cap sync android",
-    "build:apk": "cap sync android && cd android && ./gradlew assembleDebug"
+    "copy:capacitor": "cp node_modules/@capacitor/core/dist/capacitor.js www/vendor/capacitor.js",
+    "sync": "npm run copy:capacitor && cap sync android",
+    "build:apk": "npm run sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "8.6.0",

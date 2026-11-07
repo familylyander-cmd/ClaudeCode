@@ -30,7 +30,7 @@ jobs:
           cache: gradle
       - run: npm ci
       - run: npm test
-      - run: npx cap sync android
+      - run: npm run sync
       - run: ./gradlew assembleDebug --no-daemon
         working-directory: android-app/android
       - run: cp android/app/build/outputs/apk/debug/app-debug.apk Bostadsbevakning.apk
