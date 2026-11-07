@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bostadsbevakning</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #fcfcfb; --surface: #ffffff; --text: #0b0b0b; --text2: #52514e; --muted: #8a8984;
+  --border: #e4e3df; --for-sale: #2a78d6; --sold: #eb6834; --removed: #8a8984; --error: #c62828;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1a1a19; --surface: #232322; --text: #f0efec; --text2: #c3c2b7; --muted: #8f8e86;
+    --border: #3a3a38; --for-sale: #3987e5; --sold: #d95926; --removed: #8f8e86; --error: #ef6b6b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+header h1 { font-size: 17px; margin: 0; }
+.crit { color: var(--text2); font-size: 13px; }
+nav { display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+button.active { background: var(--text); color: var(--bg); }
+.spacer { flex: 1; }
+main { padding: 16px; }
+.hidden { display: none !important; }
+.filters { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; color: var(--text2); }
+.legend { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.st-for_sale { background: var(--for-sale); } .st-sold { background: var(--sold); } .st-removed { background: var(--removed); }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+th { color: var(--text2); font-weight: 600; cursor: pointer; user-select: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.row-sold td:first-child { border-left: 4px solid var(--sold); }
+tr.row-for_sale td:first-child { border-left: 4px solid var(--for-sale); }
+tr.row-removed td:first-child { border-left: 4px solid var(--removed); }
+.badge { display: inline-flex; gap: 5px; align-items: center; }
+a { color: var(--for-sale); }
+#map { height: calc(100vh - 170px); min-height: 400px; border-radius: 8px; border: 1px solid var(--border); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.tile .k { color: var(--text2); font-size: 12px; }
+.tile .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.chart { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; height: 300px; }
+.chart h3 { margin: 0 0 8px; font-size: 13px; color: var(--text2); font-weight: 600; }
+.chart canvas { max-height: 250px; }
+#msg { font-size: 13px; color: var(--text2); }
+#msg.err { color: var(--error); }
+dialog { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); max-width: 560px; width: calc(100% - 32px); }
+dialog textarea, dialog input { width: 100%; font: inherit; padding: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+.empty { color: var(--text2); padding: 24px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bostadsbevakning – Stockholms innerstad</h1>
+  <span class="crit" id="crit"></span>
+  <span class="spacer"></span>
+  <span id="msg"></span>
+  <button id="syncBtn">Uppdatera från Booli</button>
+  <button id="importBtn">Importera…</button>
+</header>
+<nav>
+  <button data-view="list" class="active">Lista</button>
+  <button data-view="map">Karta</button>
+  <button data-view="stats">Statistik</button>
+</nav>
+<main>
+  <div class="filters" id="filters">
+    <label><input type="checkbox" value="for_sale" checked> <span class="legend"><span class="dot st-for_sale"></span>Till salu</span></label>
+    <label><input type="checkbox" value="sold" checked> <span class="legend"><span class="dot st-sold"></span>Sålda</span></label>
+    <label><input type="checkbox" value="removed" checked> <span class="legend"><span class="dot st-removed"></span>Borttagna (slutpris saknas)</span></label>
+  </div>
+
+  <section id="view-list">
+    <div class="tablewrap"><table>
+      <thead><tr>
+        <th data-k="status">Status</th><th data-k="address">Adress</th><th data-k="area_name">Område</th>
+        <th data-k="rooms" class="num">Rum</th><th data-k="living_area" class="num">Kvm</th>
+        <th data-k="list_price" class="num">Utgångspris</th><th data-k="sold_price" class="num">Slutpris</th>
+        <th data-k="diff" class="num">Diff</th><th data-k="sqm" class="num">Kr/kvm</th>
+        <th data-k="rent" class="num">Avgift</th><th data-k="first_seen">Sparad</th><th data-k="sold_date">Såld</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table></div>
+    <div id="emptyList" class="empty hidden">Inga objekt ännu. Klicka ”Uppdatera från Booli” eller importera en sida.</div>
+  </section>
+
+  <section id="view-map" class="hidden"><div id="map"></div></section>
+
+  <section id="view-stats" class="hidden">
+    <div class="tiles" id="tiles"></div>
+    <div class="charts">
+      <div class="chart"><h3>Median kr/kvm per månad (sålda)</h3><canvas id="chMonth"></canvas></div>
+      <div class="chart"><h3>Antal sålda per område</h3><canvas id="chArea"></canvas></div>
+      <div class="chart"><h3>Slutpris vs utgångspris (%) per objekt</h3><canvas id="chDiff"></canvas></div>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Område</th><th class="num">Antal sålda</th><th class="num">Median kr/kvm</th><th class="num">Snitt diff mot utgångspris</th></tr></thead>
+      <tbody id="areaBody"></tbody>
+    </table></div>
+  </section>
+</main>
+
+<dialog id="importDlg">
+  <form method="dialog" id="importForm">
+    <h3>Importera från Booli</h3>
+    <p>Klistra in en Booli-URL (sök- eller annonssida). Om servern blockeras av Booli kan du istället öppna sidan i webbläsaren, välja ”Visa källkod” och klistra in hela HTML-koden.</p>
+    <p><input id="impUrl" placeholder="https://www.booli.se/…"></p>
+    <p><textarea id="impHtml" rows="5" placeholder="…eller klistra in HTML"></textarea></p>
+    <menu style="display:flex;gap:8px;padding:0;justify-content:flex-end">
+      <button value="cancel">Avbryt</button><button value="ok" id="impOk">Importera</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="soldDlg">
+  <form method="dialog">
+    <h3>Ange slutpris</h3>
+    <p id="soldAddr"></p>
+    <p><input id="soldPrice" type="number" placeholder="Slutpris (kr)"></p>
+    <p><input id="soldDate" type="date"></p>
+    <menu style="display:flex;gap:8px;padding:0;justify-content:flex-end">
+      <button value="cancel">Avbryt</button><button value="ok">Spara</button>
+    </menu>
+  </form>
+</dialog>
+
+<script>
+const STATUS = { for_sale: "Till salu", sold: "Såld", removed: "Borttagen" };
+const kr = v => v == null ? "–" : Math.round(v).toLocaleString("sv-SE") + " kr";
+const mkr = v => v == null ? "–" : (v / 1e6).toLocaleString("sv-SE", { maximumFractionDigits: 2 }) + " mkr";
+const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + v.toFixed(1).replace(".", ",") + " %";
+const num = v => v == null ? "–" : v.toLocaleString("sv-SE");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+let listings = [], sortKey = "first_seen", sortDir = -1, map, layer, charts = {};
+
+function derived(l) {
+  const base = l.first_list_price || l.list_price;
+  return {
+    ...l,
+    diff: l.sold_price && base ? (l.sold_price / base - 1) * 100 : null,
+    sqm: l.living_area ? (l.sold_price || l.list_price) / l.living_area : null,
+  };
+}
+function visible() {
+  const on = [...document.querySelectorAll("#filters input:checked")].map(i => i.value);
+  return listings.map(derived).filter(l => on.includes(l.status));
+}
+function setMsg(t, err) { const m = document.getElementById("msg"); m.textContent = t || ""; m.className = err ? "err" : ""; }
+
+async function load() {
+  const [ls, st] = await Promise.all([fetch("/api/listings").then(r => r.json()), fetch("/api/status").then(r => r.json())]);
+  listings = ls;
+  const c = st.criteria;
+  document.getElementById("crit").innerHTML =
+    `Lägenhet · ≥ ${c.min_area} kvm · ≥ ${c.min_rooms} rum · utgångspris ≤ ${mkr(c.max_price)}` +
+    (st.last_sync ? ` · Senaste synk ${esc(st.last_sync.ts.replace("T", " "))}: ${esc(st.last_sync.message)}` : "");
+  render();
+}
+
+function render() { renderList(); if (map) renderMap(); if (!document.getElementById("view-stats").classList.contains("hidden")) renderStats(); }
+
+function renderList() {
+  const rows = visible().sort((a, b) => {
+    const x = a[sortKey], y = b[sortKey];
+    if (x == null) return 1; if (y == null) return -1;
+    return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
+  });
+  document.getElementById("emptyList").classList.toggle("hidden", listings.length > 0);
+  document.getElementById("tbody").innerHTML = rows.map(l => `
+    <tr class="row-${l.status}">
+      <td><span class="badge"><span class="dot st-${l.status}"></span>${STATUS[l.status]}</span></td>
+      <td>${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.address || l.booli_id)}</a>` : esc(l.address || l.booli_id)}</td>
+      <td>${esc(l.area_name || "")}</td>
+      <td class="num">${num(l.rooms)}</td><td class="num">${num(l.living_area)}</td>
+      <td class="num">${kr(l.first_list_price || l.list_price)}</td>
+      <td class="num">${kr(l.sold_price)}</td><td class="num">${pct(l.diff)}</td>
+      <td class="num">${kr(l.sqm)}</td><td class="num">${kr(l.rent)}</td>
+      <td>${esc(l.first_seen)}</td><td>${esc(l.sold_date || "")}</td>
+      <td>${l.status !== "sold" ? `<button data-sold="${esc(l.booli_id)}">Ange slutpris</button>` : ""}</td>
+    </tr>`).join("");
+}
+
+function renderMap() {
+  if (!map) {
+    map = L.map("map").setView([59.334, 18.065], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: "&copy; OpenStreetMap-bidragsgivare",
+    }).addTo(map);
+    const lg = L.control({ position: "bottomleft" });
+    lg.onAdd = () => { const d = L.DomUtil.create("div"); d.style.cssText = "background:#fff;color:#0b0b0b;padding:6px 8px;border-radius:6px;font-size:12px";
+      d.innerHTML = `<div><span class="dot st-for_sale"></span> Till salu</div><div><span class="dot st-sold"></span> Såld</div><div><span class="dot st-removed"></span> Borttagen</div>`; return d; };
+    lg.addTo(map);
+  }
+  if (layer) layer.remove();
+  const color = { for_sale: css("--for-sale"), sold: css("--sold"), removed: css("--removed") };
+  const pts = visible().filter(l => l.lat && l.lng);
+  layer = L.layerGroup(pts.map(l => L.circleMarker([l.lat, l.lng], {
+    radius: 8, color: "#ffffff", weight: 2, fillColor: color[l.status], fillOpacity: 0.95,
+  }).bindPopup(`<b>${esc(l.address || "")}</b><br>${esc(l.area_name || "")}<br>
+      ${STATUS[l.status]} · ${num(l.rooms)} rum · ${num(l.living_area)} kvm<br>
+      Utgångspris: ${kr(l.first_list_price || l.list_price)}<br>
+      ${l.sold_price ? `Slutpris: ${kr(l.sold_price)} (${pct(l.diff)})<br>` : ""}
+      ${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">Visa på Booli</a>` : ""}`))).addTo(map);
+  setTimeout(() => map.invalidateSize(), 0);
+}
+
+async function renderStats() {
+  const s = await fetch("/api/stats").then(r => r.json());
+  const t = s.sold || {};
+  const tiles = [
+    ["Till salu", num(s.counts.for_sale)], ["Sålda", num(s.counts.sold)], ["Borttagna utan slutpris", num(s.counts.removed)],
+    ["Medianslutpris", mkr(t.median_price)], ["Snitt slutpris", mkr(t.avg_price)],
+    ["Median kr/kvm", kr(t.median_sqm_price)], ["Snitt diff mot utgångspris", pct(t.avg_diff_pct)],
+    ["Andel över utgångspris", t.share_over_list_pct == null ? "–" : Math.round(t.share_over_list_pct) + " %"],
+    ["Mediantid till försäljning", t.median_days_to_sale == null ? "–" : Math.round(t.median_days_to_sale) + " dagar"],
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(([k, v]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  document.getElementById("areaBody").innerHTML = s.by_area.map(a =>
+    `<tr><td>${esc(a.area)}</td><td class="num">${a.count}</td><td class="num">${kr(a.median_sqm_price)}</td><td class="num">${pct(a.avg_diff_pct)}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="empty">Inga sålda objekt ännu.</td></tr>`;
+
+  const ink = css("--text2"), grid = css("--border"), sold = css("--sold");
+  Chart.defaults.color = ink; Chart.defaults.borderColor = grid;
+  const base = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
+  const mk = (id, cfg) => { charts[id]?.destroy(); charts[id] = new Chart(document.getElementById(id), cfg); };
+  mk("chMonth", { type: "line", data: { labels: s.by_month.map(m => m.month),
+      datasets: [{ data: s.by_month.map(m => m.median_sqm_price), borderColor: sold, backgroundColor: sold, borderWidth: 2, pointRadius: 4 }] },
+    options: { ...base, interaction: { mode: "index", intersect: false },
+      plugins: { ...base.plugins, tooltip: { callbacks: { label: c => kr(c.parsed.y) + "/kvm" } } },
+      scales: { y: { ticks: { callback: v => (v / 1000) + " tkr" } }, x: { grid: { display: false } } } } });
+  mk("chArea", { type: "bar", data: { labels: s.by_area.map(a => a.area),
+      datasets: [{ data: s.by_area.map(a => a.count), backgroundColor: sold, borderRadius: 4, maxBarThickness: 28 }] },
+    options: { ...base, indexAxis: "y", scales: { x: { ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
+  const soldList = listings.map(derived).filter(l => l.status === "sold" && l.diff != null)
+    .sort((a, b) => (a.sold_date || "").localeCompare(b.sold_date || ""));
+  mk("chDiff", { type: "bar", data: { labels: soldList.map(l => l.address || l.booli_id),
+      datasets: [{ data: soldList.map(l => l.diff), backgroundColor: sold, borderRadius: 4, maxBarThickness: 20 }] },
+    options: { ...base, plugins: { ...base.plugins, tooltip: { callbacks: { label: c => pct(c.parsed.y) } } },
+      scales: { x: { ticks: { display: false }, grid: { display: false } }, y: { ticks: { callback: v => v + " %" } } } } });
+}
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
+  ["list", "map", "stats"].forEach(v => document.getElementById("view-" + v).classList.toggle("hidden", v !== b.dataset.view));
+  document.getElementById("filters").classList.toggle("hidden", b.dataset.view === "stats");
+  if (b.dataset.view === "map") renderMap();
+  if (b.dataset.view === "stats") renderStats();
+});
+document.querySelectorAll("#filters input").forEach(i => i.onchange = render);
+document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {
+  sortDir = sortKey === th.dataset.k ? -sortDir : 1; sortKey = th.dataset.k; renderList();
+});
+
+document.getElementById("syncBtn").onclick = async e => {
+  e.target.disabled = true; setMsg("Hämtar från Booli…");
+  try {
+    const r = await fetch("/api/sync", { method: "POST" }).then(r => r.json());
+    setMsg(r.message, !r.ok); await load();
+  } catch (err) { setMsg(String(err), true); }
+  e.target.disabled = false;
+};
+
+const impDlg = document.getElementById("importDlg");
+document.getElementById("importBtn").onclick = () => impDlg.showModal();
+impDlg.onclose = async () => {
+  if (impDlg.returnValue !== "ok") return;
+  const url = document.getElementById("impUrl").value.trim(), html = document.getElementById("impHtml").value;
+  setMsg("Importerar…");
+  const r = await fetch("/api/import", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(html ? { html } : { url }) }).then(r => r.json());
+  setMsg(r.message, !r.ok); document.getElementById("impHtml").value = ""; await load();
+};
+
+const soldDlg = document.getElementById("soldDlg"); let soldId = null;
+document.getElementById("tbody").onclick = e => {
+  const id = e.target.dataset?.sold; if (!id) return;
+  soldId = id; const l = listings.find(x => x.booli_id === id);
+  document.getElementById("soldAddr").textContent = l.address || id;
+  document.getElementById("soldPrice").value = ""; document.getElementById("soldDate").value = new Date().toISOString().slice(0, 10);
+  soldDlg.showModal();
+};
+soldDlg.onclose = async () => {
+  const price = document.getElementById("soldPrice").value;
+  if (soldDlg.returnValue !== "ok" || !price) return;
+  await fetch("/api/listings/" + encodeURIComponent(soldId), { method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sold_price: Number(price), sold_date: document.getElementById("soldDate").value }) });
+  await load();
+};
+
+load();
+</script>
+</body>
+</html>
