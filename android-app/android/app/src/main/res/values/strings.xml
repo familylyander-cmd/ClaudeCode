@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Bostadsbevakning</string>
+    <string name="title_activity_main">Bostadsbevakning</string>
+    <string name="package_name">se.bostadsbevakning.app</string>
+    <string name="custom_url_scheme">se.bostadsbevakning.app</string>
+</resources>

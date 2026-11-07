@@ -1,5 +1,7 @@
 # Bostadsbevakning – Booli, Stockholms innerstad
 
+> **Android-app utan Termux:** se [android-app/README.md](android-app/README.md). Nedan beskrivs Python-versionen (dator eller Termux).
+
 Sparar Booli-objekt som uppfyller:
 
 - Lägenhet i Stockholms innerstad
