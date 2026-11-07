@@ -15,6 +15,28 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m booli_saver.app        # http://127.0.0.1:5000
 ```
 
+## Köra på Android-mobil (Termux)
+
+Appen körs direkt på mobilen – ingen dator eller server behövs.
+
+1. Installera från **F-Droid** (inte Google Play – den versionen är föråldrad):
+   **Termux**, **Termux:API** (för automatisk synk) och gärna **Termux:Widget** (genväg på hemskärmen).
+2. Öppna Termux och kör:
+   ```bash
+   pkg install -y git
+   git clone -b claude/booli-stockholm-apartment-saver-raa0mp https://github.com/familylyander-cmd/ClaudeCode.git ~/bostader
+   bash ~/bostader/termux/setup.sh
+   ```
+   Är repot privat frågar git efter användarnamn och en *personal access token* (inte lösenord).
+3. Starta: `bash ~/bostader/termux/start.sh` – appen öppnas i webbläsaren på http://127.0.0.1:5000.
+4. I Chrome: meny ⋮ → **Lägg till på startskärmen** för en app-ikon. Termux måste köra (steg 3) för att ikonen ska fungera.
+
+`setup.sh` installerar Python och Flask, skapar Termux:Widget-genvägarna *Bostadsbevakning*, *Synka Booli* och *Stoppa bostadsappen*, och schemalägger synk från Booli var 6:e timme (även när appen inte är öppen). Synklogg: `~/bostader/data/sync.log`.
+
+Uppdatera till senaste versionen: `cd ~/bostader && git pull`.
+
+Tips: undanta Termux från batterioptimering (Inställningar → Appar → Termux → Batteri → Obegränsad), annars kan Android stoppa appen och den schemalagda synken.
+
 ## Uppdatera data
 
 - Knappen **Uppdatera från Booli** i appen, eller

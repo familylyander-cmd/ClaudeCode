@@ -47,7 +47,7 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     path = path or config.DB_PATH
     if path != ":memory:":
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    con = sqlite3.connect(path, check_same_thread=False)
+    con = sqlite3.connect(path, check_same_thread=False, timeout=30)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
     return con

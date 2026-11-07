@@ -40,3 +40,6 @@ def search_url(sold: bool, page: int = 1) -> str:
     if page > 1:
         params.append(f"page={page}")
     return base + "?" + "&".join(params)
+
+HOST = os.environ.get("BOOLI_HOST", "127.0.0.1")
+PORT = int(os.environ.get("BOOLI_PORT", 5000))

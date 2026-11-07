@@ -24,6 +24,18 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.get("/manifest.json")
+def manifest():
+    return send_from_directory(app.static_folder, "manifest.json", mimetype="application/manifest+json")
+
+
+@app.get("/sw.js")
+def service_worker():
+    r = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript")
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
 @app.get("/api/listings")
 def listings():
     with _lock:
@@ -119,7 +131,7 @@ def _background():
 def main():
     if config.SYNC_INTERVAL_MIN > 0:
         threading.Thread(target=_background, daemon=True).start()
-    app.run(host="127.0.0.1", port=5000)
+    app.run(host=config.HOST, port=config.PORT)
 
 
 if __name__ == "__main__":
